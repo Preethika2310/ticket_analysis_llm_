@@ -1,7 +1,7 @@
 from typing import List, Dict
 
-SYSTEM_PROMPT = """You are a classification expert. 
-Given a user ticket with Description and Short Description, and a catalog of definitions, 
+SYSTEM_PROMPT = """You are a classification expert.
+Given a user ticket with Description and Short Description, and a catalog of definitions,
 select the single best matching row and provide a structured JSON with:
 - assignment_group
 - service
@@ -11,11 +11,10 @@ Also compute a confidence score between 0 and 1 based on semantic match quality.
 Be accurate and avoid fabricating values not present in the catalog."""
 
 def build_user_prompt(description: str, short_description: str, catalog: List[Dict]) -> str:
-    # Pack catalog definitions into a compact list
     lines = []
     for i, row in enumerate(catalog):
         lines.append(
-            f"ID={i}; AG={row['Assignment Group']}; Service={row['Service']}; Offering={row['Service Offering']}; Def={row['Definition']}"
+            f"ID={i}; AG={row['Assignment Group']}; Service={row['Service']}; Offering={row['Service Offering']}; Def={row['Definition']}; Reason={row['Routing Reason']}"
         )
     catalog_text = "\n".join(lines)
 

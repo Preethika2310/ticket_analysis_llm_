@@ -4,13 +4,11 @@ from config import Settings
 from excel_loader import load_catalog
 from prompt import SYSTEM_PROMPT, build_user_prompt
 from matching import parse_llm_json, compute_accuracy
-
 import requests
 
 app = Flask(__name__)
 CORS(app)
 
-# Load catalog once at startup
 try:
     CATALOG = load_catalog(Settings.EXCEL_PATH)
 except Exception as e:
@@ -18,12 +16,6 @@ except Exception as e:
     CATALOG = []
 
 def call_azure_openai(system_prompt: str, user_prompt: str) -> str:
-    """
-    Call Azure OpenAI Chat Completions.
-    """
-    if not (Settings.AZURE_OPENAI_ENDPOINT and Settings.AZURE_OPENAI_API_KEY and Settings.AZURE_OPENAI_DEPLOYMENT):
-        raise RuntimeError("Azure OpenAI settings missing. Check AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT.")
-
     url = f"{Settings.AZURE_OPENAI_ENDPOINT}/openai/deployments/{Settings.AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=2024-08-01-preview"
     headers = {
         "Content-Type": "application/json",
@@ -35,8 +27,8 @@ def call_azure_openai(system_prompt: str, user_prompt: str) -> str:
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.0,
-        "top_p": 0.95,
-        "max_tokens": 300,
+        "top_p": 0.9,
+        "max_tokens": 150,
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
@@ -49,7 +41,6 @@ def health():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    # Validate input
     body = request.get_json(force=True)
     description = (body.get("description") or "").strip()
     short_description = (body.get("short_description") or "").strip()
@@ -60,7 +51,6 @@ def analyze():
     if not CATALOG:
         return jsonify({"error": "Catalog not loaded"}), 500
 
-    # Build prompt and call LLM
     user_prompt = build_user_prompt(description, short_description, CATALOG)
     try:
         llm_text = call_azure_openai(SYSTEM_PROMPT, user_prompt)
@@ -68,7 +58,6 @@ def analyze():
     except Exception as e:
         return jsonify({"error": f"LLM call/parsing failed: {str(e)}"}), 500
 
-    # Identify chosen definition (match returned fields to row)
     assignment_group = parsed.get("assignment_group", "")
     service = parsed.get("service", "")
     service_offering = parsed.get("service_offering", "")
@@ -76,16 +65,14 @@ def analyze():
     reasoning = parsed.get("reasoning", "")
 
     chosen_def = ""
+    routing_reason = ""
     for row in CATALOG:
         if (row["Assignment Group"] == assignment_group and
             row["Service"] == service and
             row["Service Offering"] == service_offering):
             chosen_def = row["Definition"]
+            routing_reason = row["Routing Reason"]
             break
-
-    # Fallback: if no exact match found, use best guess definition from reasoning (not ideal, but prevents empty)
-    if not chosen_def and len(CATALOG) > 0:
-        chosen_def = CATALOG[0]["Definition"]
 
     accuracy = compute_accuracy(confidence, description, short_description, chosen_def)
 
@@ -94,6 +81,7 @@ def analyze():
         "assignment_group": assignment_group,
         "service": service,
         "service_offering": service_offering,
+        "routing_reason": routing_reason,
         "reasoning": reasoning
     })
 
